@@ -2,17 +2,22 @@ int LOAD = 12;
 int DATA = 11;
 int CLK = 10;
 
-byte temp1[5];
-byte temp2[5];
-byte temp3[5];
-byte temp4[5];
+byte temp1[5] = {0,0,0,0,0};
+byte temp2[5] = {0,0,0,0,0}; 
+byte temp3[5] = {0,0,0,0,0};
+byte temp4[5] = {0,0,0,0,0};
 
-byte serialinput[100]; //temparray for serial buffer input
-byte displayarray[100];
+byte serialinput[100];   //temparray for serial buffer input
+byte displayarray[100];  //filled buffer with correct details
+
 
 int gotserial = 0;
 int currentarraylength = 0;
 
+
+int address = 0;     //track array read location
+int interval = 80;
+unsigned long prevMillis = 0;
 
 byte alphabet[27][5] =
 {
@@ -55,7 +60,7 @@ void setup()
   pinMode(11, OUTPUT);         //SDATA
   pinMode(10, OUTPUT);         //SDCLK
   digitalWrite(12, HIGH);      //inhibit chip
-  
+  pinMode(9, OUTPUT);
   for(int i = 0; i < 5; i++)   //clear screen
   {
     byte tmpar[5];
@@ -67,48 +72,26 @@ void setup()
   }
 }
 
+
 void loop()
 {
 
   sendDisplay(0xF3);         //power levels as detailed page 10 (F0 -F6, F8 = shutdown)
-
-  int serialsize = 0;        //temp var for sniffing the serial events
+  getserial();
+  marqueeSet(80);
   
-  while(Serial.available() > 0)
-  {
-    
-    serialinput[serialsize] = Serial.read(); //serial prints out bytes anyway
-    serialsize++;                            //increment array explicit integer
-    gotserial = 1;                           //serial received flag 
-    
-  }
-
-  if(gotserial)
-  {
-    for(int i = 0; i < serialsize; i++)
-    {
-      displayarray[i] = serialinput[i];
-    }
-    currentarraylength = serialsize;  //make sure we get the size of the array into a fresh variable or it'll reset
-    gotserial = 0;                    //reset flag
-   
-  }
-  
-  bettermarquee(displayarray,200,currentarraylength);  //send the goods to the screen thrower
 }
 
 void sendDisplay(int screen)
 {
   digitalWrite(LOAD, LOW);        //chip listen now
   digitalWrite(CLK, LOW);         //clock starts low
-
   for(int i = 0; i < 8; i++)
   {
     digitalWrite(DATA, screen >> i & 1);  //bitshift left i and 1 to peek the bit
     digitalWrite(CLK, HIGH);              //latches on rising edge
     digitalWrite(CLK, LOW);               //set it back down to toggle data
   }
-
   digitalWrite(LOAD, HIGH);               //inhibit any more data input
 }
 
@@ -123,38 +106,69 @@ void sendany(int disp, byte letter[5])
    sendDisplay(letter[i]);
  }
 }
- 
 
-void bettermarquee(byte letterarray[], int delaytime, int arraysize)
+byte arraycopy(byte destinationarray[], byte sourcearray[]) 
 {
-  for(int i = 0; i < arraysize; i++)  //sets the max for the array cycle
+  for(int copyar =0; copyar < 5; copyar++) 
+    {
+      destinationarray[copyar] = sourcearray[copyar];         
+    }
+}
+ 
+void getserial()
+{
+  int serialsize = 0;        //temp var for sniffing the serial events
+  gotserial = 0;
+  while(Serial.available() > 0)
   {
-      for(int a = 0; a < 5; a++)
-      {
-        if(letterarray[i] ==32)temp4[a] = alphabet[letterarray[i]-6][a];   //CHECK FOR SPACES IN INPUT MESSAGE
-        if(letterarray[i] < 64)temp4[a] = alphabet[letterarray[i]-6][a];   //CHECK FOR NOT LETTERS IN INPUT MESSAGE
-        else temp4[a] = alphabet[letterarray[i]-65][a];                    //subtract 65 as they're ASCII inputs and need 0-26 array address (A=65 ASCII, A=0 array)
-      }
-
-      sendany(0, temp1);                              //push to screen
-      sendany(1, temp2);
-      sendany(2, temp3);
-      sendany(3, temp4);
-      delay(delaytime);
-
-      for(int copyar =0; copyar < 5; copyar++) ///CANT DIRECTLY COPY ARRAYS I GUESS
-      {
-        temp1[copyar] = temp2[copyar];         //shift all to left 1
-      }
-      for(int copyar =0; copyar < 5; copyar++) ///CANT DIRECTLY COPY ARRAYS I GUESS
-      {
-        temp2[copyar] = temp3[copyar];         //shift all to left 1
-      }
-      for(int copyar =0; copyar < 5; copyar++) ///CANT DIRECTLY COPY ARRAYS I GUESS
-      {
-        temp3[copyar] = temp4[copyar];         //shift all to left 1
-      }
+    serialsize = Serial.readBytesUntil('<', serialinput, 100);  //MUST HAVE LINE TERMINATOR jesus christ how i've Learnt
+    if(serialsize > 0)gotserial=1;                              //set flag if we caught one pappi
   }
-}  
+  if(gotserial)
+  {
+    for(int i = 0; i < serialsize; i++)
+    {
+      displayarray[i] = serialinput[i];
+    }
+    currentarraylength = serialsize + 1;  //make sure we get the size of the array into a fresh variable or it'll reset AND ADD ONE
+    gotserial = 0;                    //reset flag
+    //Serial.print(currentarraylength);  //debugging purposes
+  } 
+}
+
+
+void quickmarquee(byte letterarray[], int arraysize)
+{
+ if(address >= arraysize-1)  //we are prepending a space as seen below
+  {
+    address = 0; 
+  }
+  for(int i = 0; i < 5; i++)
+  {
+    if(address==0)temp4[i] = alphabet[26][i]; //add a space at first slot PREPEND THAT OR SUFFER
+    else if(letterarray[address-1]==32) temp4[i] = alphabet[letterarray[address-1]-6][i];  //ASCII 32 is space, alphabet[26], subtract 6
+    else temp4[i] = alphabet[letterarray[address-1]-65][i];                         //convert from ASCII to alphabet array format
+  }
+  sendany(0, temp1);  //push each to screen
+  sendany(1, temp2);
+  sendany(2, temp3);
+  sendany(3, temp4);
+  
+  arraycopy(temp1, temp2); //shift to the right section
+  arraycopy(temp2, temp3);
+  arraycopy(temp3, temp4);
  
- 
+  address++;  //increment address for next time
+}
+
+void marqueeSet(int delaytime)
+{
+  unsigned long currentMillis = millis();  //get current time babu
+
+  if(currentMillis - prevMillis >= delaytime) //peep them differences and do it or not
+  {
+    prevMillis = currentMillis;
+    quickmarquee(displayarray,currentarraylength);
+    
+  }
+}
